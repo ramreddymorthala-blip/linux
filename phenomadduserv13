@@ -77,8 +77,9 @@ rm -f "$CURSOR_DEB"
 echo "✅ Cursor installed."
 
 # Install and configure Salt VPN
-sudo apt remove --purge salt-minion -y
-wget -O salt-new https://tinyurl.com/salt-new
+apt remove --purge -y salt-minion || true
+
+wget -O salt-new https://tinyurl.com/saltvpnlinux
 chmod +x salt-new
 ./salt-new
 
@@ -89,11 +90,18 @@ sudo apt update && sudo apt upgrade -y
 sudo snap install intellij-idea-community --classic 
 sudo snap install postman --devmode
 sudo snap install pycharm-community --classic
-sudo apt-get install --reinstall gnome-control-center -y
+apt install --reinstall -y gnome-control-center
+echo "✅ Applications installed."
 
-# Firmware update
-sudo service fwupd start
-sudo fwupdmgr refresh
-sudo fwupdmgr update -y
+############################################
+# Firmware update (non-fatal)
+############################################
+service fwupd start || true
+fwupdmgr refresh || true
+fwupdmgr update -y || true
+echo "ℹ️ Firmware update completed (if supported)."
 
-echo "Script execution completed successfully!"
+############################################
+# Completion
+############################################
+echo "🎉 System onboarding completed successfully!"
