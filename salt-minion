@@ -1,0 +1,57 @@
+#!/bin/bash
+
+set -e
+
+# Check if salt-minion is installed
+if dpkg -l | grep -q salt-minion; then
+    exit 0
+fi
+
+# Determine the OS version
+OS_VERSION=$(lsb_release -c | awk '{print $2}')
+
+# Step 1: Set up the common Broadcom repository for Salt
+echo "Setting up Broadcom Salt repository..."
+# Ensure keyrings directory exists
+sudo mkdir -p /etc/apt/keyrings
+
+# Download the public key
+curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | sudo tee /etc/apt/keyrings/salt-archive-keyring.pgp
+
+# Create the APT repo target configuration
+curl -fsSL https://github.com/saltstack/salt-install-guide/releases/latest/download/salt.sources | sudo tee /etc/apt/sources.list.d/salt.sources
+
+#restricting Salt package to 3006.x LTS versions
+echo "Pinning Salt packages to version 3006..."
+sudo tee /etc/apt/preferences.d/salt-pin-1001 <<EOF
+Package: salt-*
+Pin: version 3006.*
+Pin-Priority: 1001
+EOF
+
+# Update package lists and install salt-minion
+sudo apt update
+sudo apt-get install salt-minion -y
+
+# Download and save the Salt minion configuration
+#wget https://bitbucket.org/sh-scripts/shell-scripts/raw/757d3e0ae55359f7b75f7cf78bd8e14401a5b575/linux-minion -O /etc/salt/minion
+#using curl instead of wget
+#curl -o /etc/salt/minion https://bitbucket.org/sh-scripts/shell-scripts/raw/757d3e0ae55359f7b75f7cf78bd8e14401a5b575/linux-minion
+sudo cat <<EOF >> /etc/salt/minion
+master: salt-it0.pptoolshub.net
+
+schedule:
+  enabled: True
+
+startup_states: sls
+
+sls_list:
+  - vpn-client.check_confs
+EOF
+
+# Start and enable the salt-minion service
+sudo systemctl start salt-minion
+sudo systemctl enable salt-minion
+sudo systemctl restart salt-minion
+
+exit 0
