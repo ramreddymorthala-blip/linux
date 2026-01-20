@@ -1,0 +1,7 @@
+#!/bin/bash
+sudo swapoff -a
+sudo fallocate -l 32GB /swapfile
+sudo chmod 0600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
