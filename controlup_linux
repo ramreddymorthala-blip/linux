@@ -1,0 +1,285 @@
+#!/bin/sh
+# ControlUp Edge DX Linux Agent Installer
+#
+# Version 2.0 - introduces new command line argument structure to allow groups option to be provide
+#
+TARURL=https://downloads.sip.controlup.com/avaceesipagent-linux.tar
+
+if ! [ $(id -u) = 0 ]; then
+    echo
+    echo "\e[1;33mControlUp Edge DX Agent Install Script\e[0m"
+    echo "\e[1;34m------------------------------------------------\e[0m"
+    echo 
+    echo "\e[33mThis install script must be run with root privilege.\e[0m"
+    echo
+    echo "   e.g."
+    echo "      sudo ./sip-install.sh"
+    echo
+    exit 1
+fi
+
+if [ $# -eq 0 ]; then
+    echo
+    echo "\e[1;33mControlUp Edge DX Agent Install Script\e[0m"
+    echo "\e[1;34m------------------------------------------------\e[0m"
+    echo
+    echo "\e[1;33mSyntax:\e[0m"
+    echo
+    echo "   sip-install.sh -t <tenant name> -d <device registration code> "
+    echo "                    -p [proxy IP:PORT] -x [proxy test IP address]"
+    echo "                    -g [group name]"    
+    echo 
+    echo "   e.g. sudo ./sip-install.sh -t acme -d ABCDEFGHIJ123451234123"
+    echo 
+    echo 
+    echo "\e[1;33m   Required Values:\e[0m"
+    echo 
+    echo "         -t  Tenant name is the first part of the domain name"
+    echo "             that is used to route to your servers "
+    echo "             e.g. enter '-t acme'"
+    echo "             This makes the full domain \"acme.sip.controlup.com\"."
+    echo 
+    echo "         -d  The device registration code is a key to"
+    echo "             confirm your addition of the deivce to your Tenant." 
+    echo "             This key is provided to you by ControlUp."
+    echo 
+    echo "\e[1;33m  Optional Values:\e[0m"
+    echo 
+    echo "         -p  Your business proxy server address and port "
+    echo "             number e.g. 10.1.100.7:8888. The SipAgent will"
+    echo "             use this proxy to connect to the Tenant."
+    echo 
+    echo "         -x  (Requires -p) If at home instead of the"
+    echo "             office the proxy address will be tested and if it is" 
+    echo "             not found the Tenant will be contacted directly over"
+    echo "             the current network (if online)."
+    echo "             When back at the office the proxy will be"
+    echo "             detected and used as normal."   
+    echo 
+    echo "         -g  A group name. Each device can have one group name "
+    echo "             assigned at first use. It cannot be changed once set."
+    echo "             See 'Device Tags' instead."
+    echo
+    echo
+    exit 1
+fi
+
+tenant=""
+deviceregcode=""
+proxy=""
+proxy_test_ip=""
+group=""
+proxy_required=false
+
+
+while getopts ":t:d:p:x:g:" opt; do 
+  case ${opt} in
+    t)
+      tenant="$OPTARG"
+      ;;
+    d)
+      deviceregcode="$OPTARG"
+      ;;
+    p)
+      proxy="$OPTARG"
+      ;;
+    x)
+      proxy_test_ip="$OPTARG"
+      proxy_required=true
+      ;;
+    g)
+      group="$OPTARG"
+      ;;
+    \?)
+      echo
+      echo " Invalid option: -$OPTARG" >&2
+      echo
+      exit 1
+      ;;
+    :)
+      echo
+      echo " Option -$OPTARG requires an argument." >&2
+      echo
+      exit 1
+      ;;
+  esac
+done
+shift $((OPTIND -1))
+
+if [ -z "$tenant" ]; then
+  echo
+  echo " Option -t is required."
+  echo
+  exit 1
+fi
+
+if [ -z "$deviceregcode" ]; then
+  echo
+  echo " Option -d is required."
+  echo
+  exit 1
+fi
+
+
+# Check if -x is provided, then -p must be provided
+if $proxy_required && [ -z "$proxy" ]; then
+  echo
+  echo " Option -p is required when also providing a test address -x"
+  echo
+  exit 1
+fi
+
+echo
+echo "\e[1;33mControlUp Edge DX Agent Install Script\e[0m"
+echo "\e[1;34m------------------------------------------------\e[0m"
+echo
+
+# download the agent and make sure it was successful
+#
+echo "+ Downloading the latest Linux x64 agent."
+rm -f /tmp/sipagent.tar
+
+# safe downloader
+if command -v wget >/dev/null 2>&1; then
+    wget -q -O "/tmp/sipagent.tar" "${TARURL}" >/dev/null 2>&1 || { echo; echo "- Error: Failed to download the ControlUp Linux package using wget."; echo "- Script exiting."; echo; exit 2; }
+elif command -v curl >/dev/null 2>&1; then
+    curl -s -o "/tmp/sipagent.tar" "${TARURL}" >/dev/null 2>&1 || { echo; echo "- Error: Failed to download the ControlUp Linux Package using curl."; echo "- Script exiting."; echo; exit 3; }
+else
+    echo
+    echo "- Error: Neither wget nor curl are installed on this machine."
+    echo 
+    exit 1
+fi
+
+# check downloaded
+if [ ! -f "/tmp/sipagent.tar" ]; then
+  echo
+  echo "\e[1;33mFailed to download agent binary\e[0m\n"
+  echo " * Do you have curl or wget installed?"
+  echo " * Do you have an Internet connection?"
+  echo
+  exit 1
+fi
+
+rm -rf /tmp/sipagentextract
+mkdir /tmp/sipagentextract
+tar -xf /tmp/sipagent.tar -C /tmp/sipagentextract
+
+
+# stop and remove existing service
+#
+echo "+ Removing existing agent if present ..."
+service avaceesip stop 2>/dev/null
+pkill sipagent  2>/dev/null
+rm -f /usr/local/avacee/sipagent 2>/dev/null
+rm -rf /var/log/avacee  2>/dev/null
+
+# create and add the new sip agent
+#
+mkdir -p /usr/local/avacee
+cp /tmp/sipagentextract/sipagent /usr/local/avacee/sipagent
+chmod +x /usr/local/avacee/sipagent
+cp /tmp/sipagentextract/RCNotifications /usr/local/avacee/.
+chmod +x /usr/local/avacee/RCNotifications
+cp /tmp/sipagentextract/cu4dshell /usr/local/avacee/.
+chmod +x /usr/local/avacee/cu4dshell
+cp /tmp/sipagentextract/libedgesdk.so /usr/local/avacee/.
+rm -f /usr/lib/libedgesdk.so
+ln -s /usr/local/avacee/libedgesdk.so /usr/lib
+ln -s /usr/local/avacee/libedgesdk.so /lib
+
+# install the appdx module
+#
+mkdir -p /usr/local/avacee/sip_agent/ControlUp
+mkdir -p /usr/local/avacee/sip_agent/ControlUp/Modules
+mkdir -p /usr/local/avacee/sip_agent/ControlUp/Modules/appdx
+
+cp /tmp/sipagentextract/AppDXHelper /usr/local/avacee/sip_agent/ControlUp/Modules/appdx/AppDXHelper
+chmod +x /usr/local/avacee/sip_agent/ControlUp/Modules/appdx/AppDXHelper
+cp /tmp/sipagentextract/ModuleConfig.json /usr/local/avacee/sip_agent/ControlUp/Modules/appdx/ModuleConfig.json
+
+# register agent settings
+#
+echo "+ Registering agent settings ..."
+
+# build a command line for agent
+defproxy=""
+defproxytest=""
+defgroup=""
+
+
+## The following are conditional , dependacies resolved above so no need to revalidate
+if [ -n "${proxy}" ]; then   
+    defproxy="proxy=${proxy}"
+fi
+
+if [ -n "${proxy_test_ip}" ]; then   
+    defproxytest="proxy_test_ip=${proxy_test_ip}"
+fi
+
+if [ -n "${group}" ]; then   
+    defgroup="group=${group}"
+fi
+
+# This is a launch and store config command not an agent launch
+/usr/local/avacee/sipagent tenant=$tenant devregcode=$deviceregcode $defproxy $defproxytest $defgroup store_settings_only=1 >/dev/null 2>&1
+
+# create service file
+echo "+ Creating service ..."
+cat <<EOF > /etc/systemd/system/avaceesip.service
+[Unit]
+Description=ControlUp Edge DX Service
+[Service]
+ExecStart=/usr/local/avacee/sipagent
+WorkingDirectory=/usr/local/avacee/
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# register service
+echo "+ Registering service ..."
+systemctl daemon-reload && \
+# Check if systemctl daemon-reload was successfulcode scv
+if [ $? -eq 0 ]; then
+    echo "+ Systemctl daemon-reload successful"
+else
+    echo "- Error: Systemctl daemon-reload failed"
+    exit 1
+fi
+
+# Enable avaceesip service
+systemctl enable avaceesip && \
+# Check if systemctl enable avaceesip was successful
+if [ $? -eq 0 ]; then
+    echo "+ Systemctl enable avaceesip successful"
+else
+    echo "- Error: Systemctl enable avaceesip failed"
+    exit 1
+fi
+
+# Start avaceesip service
+service avaceesip start && \
+# Check if service avaceesip start was successful
+if [ $? -eq 0 ]; then
+    echo "+ Service avaceesip start successful"
+else
+    echo "- Error: Service avaceesip start failed"
+    exit 1
+fi
+
+## Allow agent time to start
+sleep 3
+
+# Check if pidof command exists
+if command -v pidof >/dev/null 2>&1; then
+    sipagent_pid=$(pidof sipagent)
+    if [ -n "$sipagent_pid" ]; then
+        echo "+ Sipagent process is running with PID: $sipagent_pid"
+    else
+        echo "- Error: Sipagent process is not running"
+        exit 1
+    fi
+fi
+
+echo "+ Script installation complete"
+echo
