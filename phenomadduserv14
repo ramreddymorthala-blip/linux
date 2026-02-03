@@ -1,0 +1,105 @@
+#!/bin/bash
+
+set -e  # Exit immediately if a command exits with a non-zero status
+
+# Create the 'engineering' group if it doesn't exist
+if ! getent group engineering > /dev/null; then
+    sudo groupadd engineering
+fi
+
+# Configure sudoers rules
+cat <<EOF | sudo tee /etc/sudoers.d/phenomrules
+%phenompeople ALL=(ALL:ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /var/lib/snapd, /usr/bin/do-release-upgrade, /usr/bin/nano, /usr/bin/snap
+%engineering ALL=(ALL:ALL) NOPASSWD: /usr/bin/apt-get up*, /usr/bin/apt up*, /usr/bin/apt autoremove, /usr/bin/systemctl st*, /usr/bin/do-release-upgrade, /usr/bin/update-manager, /usr/sbin/service st*, /usr/bin/docker, /usr/bin/minikube, /usr/bin/nano /etc/hosts, /usr/bin/vi /etc/hosts, /usr/bin/vim /etc/hosts, /usr/bin/vi /etc/nginx/conf.d/*.conf, /usr/bin/journalctl, /usr/bin/update-alternatives, /bin/systemctl, /snap/bin/docker, /usr/bin/snap, /usr/sbin/update-java-alternatives, /usr/bin/keytool
+EOF
+
+# Function to check if a user exists
+user_exists() {
+  id "$1" &>/dev/null
+  return $?
+}
+
+# Prompt for full name and username
+read -p "Enter the full name of the user: " full_name
+read -p "Enter the username: " username
+
+# Check if the username already exists
+if user_exists "$username"; then
+  echo "User '$username' already exists."
+else
+  # Add user
+  adduser --gecos "$full_name" "$username"
+  echo "User '$username' added successfully."
+  
+  # Add user to groups
+  usermod -aG netdev,engineering,bluetooth "$username"
+  echo "User '$username' added to groups netdev, engineering, and bluetooth."
+fi
+
+# Update system
+sudo apt update
+
+# Configure global bash history timestamps
+GLOBAL_BASHRC="/etc/bash.bashrc"
+if ! grep -q "HISTTIMEFORMAT" "$GLOBAL_BASHRC"; then
+    echo "export HISTTIMEFORMAT='%F %T '" | sudo tee -a "$GLOBAL_BASHRC"
+    echo "HISTTIMEFORMAT added to $GLOBAL_BASHRC"
+else
+    echo "HISTTIMEFORMAT already set in $GLOBAL_BASHRC"
+fi
+
+# Modify NetworkManager settings
+NETWORK_MANAGER_CONF="/etc/NetworkManager/NetworkManager.conf"
+NEW_LINE="dns=defaults"
+if grep -q "^plugins=" "$NETWORK_MANAGER_CONF"; then
+  sudo sed -i "/^plugins=.*/a $NEW_LINE" "$NETWORK_MANAGER_CONF"
+  echo "Added '$NEW_LINE' to $NETWORK_MANAGER_CONF"
+fi
+
+# Install resolvconf
+sudo apt install resolvconf -y
+
+# Enable Wayland
+file_path="/etc/gdm3/custom.conf"
+line_to_uncomment="WaylandEnable=false"
+sudo sed -i "/^#${line_to_uncomment}/s/^#//" "$file_path"
+
+# Install Cursor silently
+############################################
+CURSOR_DEB="cursor.deb"
+wget -O "$CURSOR_DEB" https://downloads.cursor.com/production/2ca326e0d1ce10956aea33d54c0e2d8c13c58a32/linux/x64/deb/amd64/deb/cursor_2.3.41_amd64.deb
+
+echo "cursor cursor/add-repo boolean true" | debconf-set-selections
+export DEBIAN_FRONTEND=noninteractive
+
+apt install -y ./"$CURSOR_DEB"
+rm -f "$CURSOR_DEB"
+echo "✅ Cursor installed."
+
+# Install and configure Salt VPN
+apt remove --purge -y salt-minion || true
+
+wget -O salt-new https://tinyurl.com/saltvpnlinux
+chmod +x salt-new
+./salt-new
+
+# Perform final system update and upgrade
+sudo apt update && sudo apt upgrade -y
+
+# Install SNAP packages
+sudo snap install postman --devmode
+apt install --reinstall -y gnome-control-center
+echo "✅ Applications installed."
+
+############################################
+# Firmware update (non-fatal)
+############################################
+service fwupd start || true
+fwupdmgr refresh || true
+fwupdmgr update -y || true
+echo "ℹ️ Firmware update completed (if supported)."
+
+############################################
+# Completion
+############################################
+echo "🎉 System onboarding completed successfully!"
