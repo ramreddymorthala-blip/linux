@@ -1,0 +1,59 @@
+#!/bin/bash
+
+set -e
+
+# Step 1: Install required dependencies
+echo "Installing build dependencies..."
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential gdb lcov pkg-config libffi-dev libgdbm-dev \
+    libgdbm-compat-dev liblzma-dev libncurses5-dev libreadline6-dev \
+    libbz2-dev libsqlite3-dev libssl-dev tk-dev uuid-dev zlib1g-dev \
+    python3-pip python3-virtualenv wget
+
+# Create a directory to store all sources
+mkdir -p ~/python_sources && cd ~/python_sources
+
+# Declare an array of Python versions
+PYTHON_VERSIONS=(
+    "3.9.23"
+    "3.11.13"
+    "3.12.11"
+    "3.13.5"
+    "3.14.0a1"
+)
+
+# Download, extract, build, and altinstall each version
+for version in "${PYTHON_VERSIONS[@]}"; do
+    echo -e "\n=========================="
+    echo "Installing Python $version"
+    echo "=========================="
+
+    # Adjust URL for alpha version
+    if [[ "$version" == "3.14.0a1" ]]; then
+        URL="https://www.python.org/ftp/python/3.14.0/Python-3.14.0a1.tgz"
+        DIR="Python-3.14.0a1"
+    else
+        URL="https://www.python.org/ftp/python/$version/Python-$version.tgz"
+        DIR="Python-$version"
+    fi
+
+    # Download and extract
+    wget "$URL"
+    tar -xvf "${DIR}.tgz"
+    cd "$DIR"
+
+    # Build and install
+    sudo ./configure --enable-optimizations
+    sudo make -j$(nproc)
+    sudo make altinstall
+
+    # Go back to source directory
+    cd ..
+done
+
+# Show installed versions
+echo -e "\nInstalled Python versions:"
+ls /usr/local/bin/python3*
+
+echo -e "\nðŸŽ‰ All Python versions installed successfully!"
